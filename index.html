@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IDW 地球化学自动填图</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root{
+    --primary:#334755; --primary-dark:#263943; --primary-light:#e9eff2;
+    --accent:#9a7445; --accent-dark:#765630; --accent-light:#f3ede5;
+    --success:#4f7468; --purple:#5d6878; --teal:#4f7468;
+    --bg:#e9edef; --panel:#fbfcfd; --panel-alt:#f2f5f6;
+    --border:#d8e0e4; --border-strong:#bdcbd1;
+    --text:#26343d; --text-soft:#5e6d76; --text-dim:#89979e;
+    --radius:6px; --radius-sm:4px;
+    --font-sans:"Noto Sans SC","Source Han Sans SC","Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;
+    --font-mono:"JetBrains Mono","SF Mono",Consolas,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{
+    font-family:var(--font-sans);
+    color:var(--text);
+    background:var(--bg);
+    font-size:12.5px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  #panel{
+    position:fixed;
+    top:0;left:0;bottom:0;
+    width:352px;
+    background:var(--panel);
+    border-right:1px solid #cbd5d9;
+    overflow-y:auto;overflow-x:hidden;
+    box-shadow:2px 0 8px rgba(38,57,67,.08);
+    z-index:1000;
+  }
+  #panel::-webkit-scrollbar{width:8px}
+  #panel::-webkit-scrollbar-thumb{background:#c4d0d5;border:2px solid var(--panel);border-radius:4px}
+
+  #topbar{background:var(--primary);color:#fff;padding:18px 20px 16px;position:sticky;top:0;z-index:100;border-bottom:3px solid var(--accent);box-shadow:0 2px 8px rgba(38,57,67,.16)}
+  #topbar h1{font-size:16px;font-weight:650;letter-spacing:.03em;display:flex;align-items:center;gap:10px}
+  #topbar h1::before{content:"";width:3px;height:17px;background:#d3ad79;border-radius:2px;flex-shrink:0}
+  #topbar .subtitle{font-size:10px;color:rgba(244,248,249,.68);margin-top:6px;margin-left:13px;letter-spacing:.08em}
+
+  .section{border-bottom:1px solid var(--border)}
+  .section:last-child{border-bottom:none}
+  .section-header{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;cursor:pointer;user-select:none;background:var(--panel);transition:background .15s}
+  .section-header:hover{background:#f5f8f9}
+  .section-header .title{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:650;color:var(--text)}
+  .section-header .num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;background:var(--primary-light);color:var(--primary);border:1px solid #b9c9d0;border-radius:5px;font-family:var(--font-mono);font-size:10px;font-weight:600;flex-shrink:0}
+  .section-header .chevron{width:12px;height:12px;color:var(--text-dim);transition:transform .18s;flex-shrink:0}
+  .section.collapsed .chevron{transform:rotate(-90deg)}
+  .section.collapsed .section-body{display:none}
+  .section-body{padding:3px 18px 16px}
+
+  .frow{display:flex;align-items:center;gap:9px;margin-top:11px}
+  .frow:first-child{margin-top:5px}
+  .frow > .flabel{flex:0 0 64px;font-size:11px;color:var(--text-soft);font-weight:600}
+  .frow > .fctrl{flex:1;min-width:0}
+  .frow > .fvalnum{flex:0 0 58px;font-family:var(--font-mono);font-size:11.5px;color:var(--text);text-align:center;padding:6px 4px;border:1px solid var(--border);border-radius:var(--radius-sm);background:#fff;font-weight:500}
+  .frow > .fvalnum:focus{border-color:var(--primary);outline:none;box-shadow:0 0 0 2px rgba(51,71,85,.1)}
+  .frow > .funit{flex:0 0 auto;font-family:var(--font-mono);font-size:10.5px;color:var(--text-dim)}
+
+  input[type=text],input[type=number],select{width:100%;font-family:var(--font-sans);font-size:12px;padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:#fff;color:var(--text);transition:border-color .15s}
+  input[type=text]:hover,input[type=number]:hover,select:hover{border-color:var(--border-strong)}
+  input[type=text]:focus,input[type=number]:focus,select:focus{border-color:var(--primary);outline:none;box-shadow:0 0 0 2px rgba(51,71,85,.1)}
+  input[type=color]{width:100%;height:32px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;background:#fff}
+  input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:2px;background:var(--border-strong);outline:none;padding:0;margin:0}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--primary);border:2px solid #fff;border-radius:50%;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;background:var(--primary);border:2px solid #fff;border-radius:50%;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+
+  label{display:block;font-size:11px;color:var(--text-soft);margin-top:11px;margin-bottom:5px;font-weight:600}
+  label:first-child{margin-top:5px}
+
+  button{margin-top:10px;width:100%;padding:8px 11px;background:var(--primary);color:#fff;border:0;cursor:pointer;font-family:var(--font-sans);font-size:12px;border-radius:var(--radius-sm);font-weight:600;transition:background .15s;display:flex;align-items:center;justify-content:center;gap:6px}
+  button:hover{background:var(--primary-dark)}
+  button:active{transform:translateY(1px)}
+  button.small{background:transparent;color:var(--text-soft);border:1px solid var(--border);padding:7px 9px;font-size:11px}
+  button.small:hover{background:var(--panel-alt);border-color:var(--border-strong);color:var(--text)}
+  button.orange{background:#fff;color:var(--primary);border:1px solid #b9c9d0}
+  button.orange:hover{color:var(--primary-dark);background:var(--primary-light);border-color:#91aab4}
+  button.runBtn{background:var(--primary);font-size:13px;padding:12px;margin-top:16px;letter-spacing:.02em}
+  button.runBtn:hover{background:var(--primary-dark)}
+  button.rmseBtn{background:#fff;color:var(--primary);border:1px solid #b9c9d0;font-size:11px;padding:7px 9px}
+  button.rmseBtn:hover{color:var(--primary-dark);background:var(--primary-light);border-color:#91aab4}
+  button.pdf{background:#fff;color:var(--primary);border:1px solid #b9c9d0;font-size:11px;padding:7px 9px}
+  button.pdf:hover{color:var(--primary-dark);background:var(--primary-light);border-color:#91aab4}
+  button.csv{background:#fff;color:var(--primary);border:1px solid #b9c9d0;font-size:11px;padding:7px 9px}
+  button.csv:hover{color:var(--primary-dark);background:var(--primary-light);border-color:#91aab4}
+  button.geojson{background:#fff;color:var(--primary);border:1px solid #b9c9d0;font-size:11px;padding:7px 9px}
+  button.geojson:hover{color:var(--primary-dark);background:var(--primary-light);border-color:#91aab4}
+  button.toggleOn{background:var(--primary-light);color:var(--primary);border-color:#cbd9de}
+  button.toggleOn:hover{background:var(--primary-light);color:var(--primary-dark)}
+
+  .drop-zone{border:1.5px dashed #b9c9d0;padding:18px 12px;text-align:center;font-size:11.5px;color:var(--text-soft);margin-top:10px;cursor:pointer;border-radius:5px;transition:all .2s;background:var(--panel-alt);line-height:1.6}
+  .drop-zone:hover,.drop-zone.hover{border-color:var(--accent);background:var(--accent-light);color:var(--accent-dark)}
+  .drop-zone small{display:block;color:var(--text-dim);font-size:10.5px;margin-top:5px}
+  .drop-zone:hover small,.drop-zone.hover small{color:var(--accent-dark)}
+
+  .stat{font-family:var(--font-mono);font-size:11px;color:var(--text);background:var(--panel-alt);padding:11px 12px;margin-top:10px;border-radius:5px;line-height:1.75;border-left:3px solid var(--accent)}
+  .stat b{color:var(--primary);font-weight:600}
+
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;background:#fff;border:1px solid var(--border);border-radius:5px;margin-top:8px;cursor:pointer;font-size:11.5px;color:var(--text);user-select:none;transition:background .15s,border-color .15s;font-weight:500}
+  .toggle-row:hover{background:var(--panel-alt);border-color:var(--border-strong)}
+  .toggle-row .lbl{flex:1;text-align:left}
+  .toggle-row .switch{flex:0 0 32px;width:32px;height:18px;background:#c4d0d5;border-radius:9px;position:relative;transition:background .18s;margin-left:10px}
+  .toggle-row .switch::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:left .18s}
+  .toggle-row.on .switch{background:var(--accent)}
+  .toggle-row.on .switch::after{left:16px}
+
+  .card{background:#fff;border:1px solid var(--border);border-radius:5px;padding:11px;margin-top:10px}
+  #log{font-family:var(--font-mono);font-size:10.5px;color:var(--text-soft);white-space:pre-wrap;margin-top:12px;max-height:170px;overflow-y:auto;background:var(--panel-alt);padding:11px 12px;border:1px solid var(--border);border-radius:5px;line-height:1.7}
+  #log::-webkit-scrollbar{width:6px}
+  #log::-webkit-scrollbar-thumb{background:#c4d0d5;border-radius:3px}
+
+  .mode-tabs{display:flex;margin-top:10px;background:var(--panel-alt);padding:3px;border-radius:5px;border:1px solid var(--border)}
+  .mode-tabs button{flex:1;margin:0;border-radius:4px;background:transparent;color:var(--text-soft);font-size:11.5px;padding:7px;font-weight:500}
+  .mode-tabs button:hover{background:transparent;color:var(--text)}
+  .mode-tabs button.active{background:#fff;color:var(--primary);box-shadow:0 1px 2px rgba(0,0,0,.06);font-weight:600}
+
+  .progress{height:3px;background:var(--border);border-radius:2px;margin-top:12px;overflow:hidden;display:none}
+  .progress div{height:100%;background:var(--accent);width:0;transition:width .15s}
+  .hint{font-size:10px;color:var(--text-dim);margin-top:6px;line-height:1.55}
+
+  .param-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px 10px;margin-top:7px}
+  .param-item{display:flex;flex-direction:column;gap:4px}
+  .param-item label{margin-top:0 !important;margin-bottom:0 !important;font-size:11px}
+  .param-item input,.param-item select{width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:#fff;color:var(--text);font-family:var(--font-sans)}
+  .param-item input:hover,.param-item select:hover{border-color:var(--border-strong)}
+  .param-item input:focus,.param-item select:focus{border-color:var(--primary);outline:none;box-shadow:0 0 0 2px rgba(51,71,85,.1)}
+
+  .toggle-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .toggle-grid .toggle-row{margin-top:0 !important;padding:9px 11px;font-size:11.5px}
+  .toggle-grid .toggle-row .switch{flex:0 0 30px;width:30px;height:16px}
+  .toggle-grid .toggle-row .switch::after{width:12px;height:12px;top:2px;left:2px}
+  .toggle-grid .toggle-row.on .switch::after{left:16px}
+
+  #map{
+    position:fixed;
+    top:0;
+    left:352px;
+    right:0;
+    bottom:0;
+    background:#1f2a26;
+  }
+
+  .leaflet-container{
+    background:#1f2a26;
+  }
+
+  .leaflet-tile.gapfix-tile{
+    width: 257px !important;
+    height: 257px !important;
+    outline: 0 !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    display: block !important;
+    image-rendering: auto;
+    -ms-interpolation-mode: bicubic;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
+
+  .leaflet-bottom.leaflet-right{
+    display:flex !important;
+    flex-direction:row !important;
+    align-items:flex-end !important;
+    justify-content:flex-end !important;
+    gap:10px !important;
+    padding:12px !important;
+    pointer-events:none;
+  }
+  .leaflet-bottom.leaflet-right > .leaflet-control,
+  .leaflet-bottom.leaflet-right > div{
+    float:none !important;
+    clear:none !important;
+    margin:0 !important;
+    position:static !important;
+    pointer-events:auto;
+    align-self:flex-end !important;
+  }
+  .leaflet-right .leaflet-control{margin-right:0 !important}
+  .leaflet-bottom .leaflet-control{margin-bottom:0 !important}
+  .leaflet-control-zoom{margin:0 !important;border:none !important;box-shadow:0 2px 8px rgba(0,0,0,.15) !important;border-radius:6px !important;overflow:hidden}
+  .leaflet-control-zoom a{width:32px !important;height:32px !important;line-height:30px !important;font-size:18px !important;color:var(--primary) !important;background:#fff !important;border-bottom:1px solid #e5e8ea !important}
+  .leaflet-control-zoom a:hover{background:var(--primary-light) !important;color:var(--primary-dark) !important}
+  .leaflet-control-zoom a:last-child{border-bottom:none !important}
+  .leaflet-control-attribution{background:rgba(255,255,255,.88) !important;padding:2px 8px !important;font-size:10px !important;border-radius:0 4px 0 0 !important;color:#5e6d76}
+  .leaflet-control-attribution a{color:#5e6d76}
+  .legend{background:rgba(255,255,255,.97);padding:11px 14px;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.12);font-size:11px;line-height:1.85;border:1px solid var(--border);backdrop-filter:blur(8px);margin:0 !important}
+  .legend i{display:inline-block;width:16px;height:11px;margin-right:6px;vertical-align:middle;border-radius:2px}
+  .graticule-label{background:transparent !important;border:none !important;font-family:var(--font-mono);font-size:9.5px;color:#334755;font-weight:600;text-shadow:1px 1px 0 rgba(255,255,255,.95),-1px -1px 0 rgba(255,255,255,.95),1px -1px 0 rgba(255,255,255,.95),-1px 1px 0 rgba(255,255,255,.95),0 1px 0 rgba(255,255,255,.95),0 -1px 0 rgba(255,255,255,.95),1px 0 0 rgba(255,255,255,.95),-1px 0 0 rgba(255,255,255,.95);text-align:center;white-space:nowrap;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="panel">
+  <div id="topbar"><h1>IDW 地球化学填图系统</h1><div class="subtitle">GEOCHEMICAL MAPPING · IDW INTERPOLATION</div></div>
+
+  <div class="section" id="sec-1">
+    <div class="section-header" onclick="toggleSection('sec-1')"><div class="title"><span class="num">01</span>底图与网格</div><svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg></div>
+    <div class="section-body">
+      <label>底图选择</label>
+      <select id="baseSelect" onchange="switchBasemap()">
+        <option value="esri_img" selected>Esri 世界影像</option>
+        <option value="esri_topo">Esri 地形晕渲</option>
+      </select>
+      <button class="small toggleOn" id="graticuleToggleBtn" onclick="toggleGraticule()">隐藏经纬网</button>
+    </div>
+  </div>
+
+  <div class="section" id="sec-2">
+    <div class="section-header" onclick="toggleSection('sec-2')"><div class="title"><span class="num">02</span>数据源</div><svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg></div>
+    <div class="section-body">
+      <div class="drop-zone" id="dropZone">点击或拖拽 CSV 到此<small>需含：经度、纬度、地球化学指标列</small></div>
+      <input type="file" id="fileInput" accept=".csv,.txt" style="display:none">
+      <div class="stat" id="stat">尚未加载数据</div>
+      <div class="card">
+        <div class="frow">
+          <div class="flabel">点大小</div>
+          <input type="range" class="fctrl" id="pointSize" min="0.5" max="10" step="0.5" value="3" oninput="syncNumInput('pointSize','pointSizeVal');drawPoints()">
+          <input type="number" class="fvalnum" id="pointSizeVal" min="0.5" max="10" step="0.5" value="3" oninput="syncRangeInput('pointSize','pointSizeVal');drawPoints()">
+          <div class="funit">px</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-3">
+    <div class="section-header" onclick="toggleSection('sec-3')"><div class="title"><span class="num">03</span>研究区边界（可选）</div><svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg></div>
+    <div class="section-body">
+      <div class="drop-zone" id="shapeZone">点击或拖拽 GeoJSON 到此<small>圈定研究区范围，色块只在此区域内显示</small></div>
+      <input type="file" id="shapeInput" accept=".geojson,.json" style="display:none">
+      <button class="small" onclick="clearStudyArea()">清除研究区边界</button>
+      <div class="card">
+        <div class="frow"><div class="flabel">颜色</div><input type="color" class="fctrl" id="shapeColor" value="#000000" onchange="updateStudyAreaStyle()"></div>
+        <div class="frow">
+          <div class="flabel">线宽</div>
+          <input type="range" class="fctrl" id="shapeWeight" min="0.5" max="10" step="0.5" value="2.0" oninput="syncNumInput('shapeWeight','shapeWeightVal');updateStudyAreaStyle()">
+          <input type="number" class="fvalnum" id="shapeWeightVal" min="0.5" max="10" step="0.5" value="2.0" oninput="syncRangeInput('shapeWeight','shapeWeightVal');updateStudyAreaStyle()">
+          <div class="funit">px</div>
+        </div>
+        <div class="frow">
+          <div class="flabel">线型</div>
+          <select class="fctrl" id="shapeDashType" onchange="updateStudyAreaStyle()">
+            <option value="solid"selected>实线</option>
+            <option value="dash" >虚线</option>
+            <option value="dot">点线</option>
+            <option value="dashdot">点划线</option>
+            <option value="longdash">长虚线</option>
+            <option value="dashdotdot">双点划线</option>
+          </select>
+        </div>
+        <div class="frow">
+          <div class="flabel">外扩(°)</div>
+          <input type="range" class="fctrl" id="shapeTolerance" min="0" max="1.5" step="0.05" value="0.3" oninput="syncNumInput('shapeTolerance','shapeToleranceVal')">
+          <input type="number" class="fvalnum" id="shapeToleranceVal" min="0" max="1.5" step="0.05" value="0.3" oninput="syncRangeInput('shapeTolerance','shapeToleranceVal')">
+          <div class="funit">°</div>
+        </div>
+        <div class="hint">色块超出研究区边界的距离</div>
+        <div class="toggle-row on" id="row-shapeVisible" onclick="toggleOption('shapeVisible')"><span class="lbl">显示边界线</span><div class="switch"></div></div>
+        <div class="toggle-row on" id="row-filterPoints" onclick="toggleOption('filterPoints')"><span class="lbl">过滤样点（只显示边界内）</span><div class="switch"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-4">
+    <div class="section-header" onclick="toggleSection('sec-4')"><div class="title"><span class="num">04</span>投图变量</div><svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg></div>
+    <div class="section-body">
+      <div class="mode-tabs">
+        <button id="tabSingle" class="active" onclick="switchMode('single')">单指标</button>
+        <button id="tabRatio" onclick="switchMode('ratio')">元素比值</button>
+      </div>
+      <div id="singleBox">
+        <label>投图字段（选择要插值的列）</label>
+        <select id="fieldSingle"></select>
+      </div>
+      <div id="ratioBox" style="display:none">
+        <label>分子 A（比值的上项）</label>
+        <select id="fieldNum"></select>
+        <label>分母 B（比值的下项）</label>
+        <select id="fieldDen"></select>
+        <label>比值类型</label>
+        <select id="ratioType">
+          <option value="simple">A / B</option>
+          <option value="pct">A / (A+B) × 100</option>
+          <option value="log">log10(A / B)</option>
+        </select>
+        <div id="ratioPreview" style="font-family:var(--font-mono);font-size:11px;color:var(--text-soft);background:var(--panel-alt);padding:9px;margin-top:8px;border-radius:5px;max-height:80px;overflow-y:auto">选择分子分母后预览</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-5">
+    <div class="section-header" onclick="toggleSection('sec-5')"><div class="title"><span class="num">05</span>插值参数</div><svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg></div>
+    <div class="section-body">
+      <div class="param-grid">
+        <div class="param-item"><label>幂值 p</label><input id="power" type="number" step="0.5" value="2"></div>
+        <div class="param-item"><label>最大相邻点数</label><input id="maxN" type="number" value="12"></div>
+        <div class="param-item"><label>最小相邻点数</label><input id="minN" type="number" value="4"></div>
+        <div class="param-item"><label>邻域分区</label>
+          <select id="sectors">
+            <option value="1">1 扇区</option>
+            <option value="4" selected>4 扇区</option>
+            <option value="4o">4 扇区 45°</option>
+            <option value="8">8 扇区</option>
+          </select>
+        </div>
+        <div class="param-item"><label>各向异性角度</label><input id="ang" type="number" value="0"></div>
+        <div class="param-item"><label>主轴半轴长(°)</label><input id="major" type="number" step="0.0001" value="0.09"></div>
+        <div class="param-item"><label>次轴半轴长(°)</label><input id="minor" type="number" step="0.0001" value="0.09"></div>
+      </div>
+      <div class="hint" style="margin-top:8px">幂值越大越"局部"；1° ≈ 111 km</div>
+      <button class="orange" onclick="applyAndRender('search05')">椭圆 = 研究区范围 × 0.5</button>
+      <button class="small" id="ellipseToggleBtn" onclick="toggleSearchEllipse()">显示搜索椭圆</button>
+    </div>
+  </div>
+
+  <div class="section" id="sec-6">
+    <div class="section-header" onclick="toggleSection('sec-6')"><div class="title"><span class="num">06</span>性能与显示</div><svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg></div>
+    <div class="section-body">
+      <label>输出像元大小</label><input id="cell" type="number" step="0.001" value="0.01">
+      <label>最大格网边长</label><input id="maxGrid" type="number" value="150">
+      <div class="toggle-row" id="row-perfMode" onclick="toggleOption('perfMode')"><span class="lbl">性能模式（数据多时开启）</span><div class="switch"></div></div>
+      <div class="toggle-row" id="row-invertRamp" onclick="toggleOption('invertRamp')"><span class="lbl">反转色带（高值蓝、低值红）</span><div class="switch"></div></div>
+      <div class="toggle-row on" id="row-smoothGrid" onclick="toggleOption('smoothGrid')"><span class="lbl">平滑输出（3×3 中值滤波）</span><div class="switch"></div></div>
+      <div class="toggle-row" id="row-fixRange" onclick="toggleOption('fixRange')"><span class="lbl">固定值域范围</span><div class="switch"></div></div>
+      <label>手动最小值</label><input id="manualVmin" type="number" step="0.01" value="-15">
+      <label>手动最大值</label><input id="manualVmax" type="number" step="0.01" value="15">
+      <label>色带</label>
+      <select id="ramp">
+        <option value="geo" selected>蓝-绿-黄-红</option>
+        <option value="spectral">紫-蓝-绿-黄-红</option>
+        <option value="green_red">绿-黄-红</option>
+        <option value="gray">灰度</option>
+      </select>
+      <div class="progress" id="progressBar"><div id="progressInner"></div></div>
+      <button class="runBtn" onclick="render()">▶ 执行 IDW 插值填图</button>
+      <button class="rmseBtn" onclick="autoPower()">按 RMSE 自动寻优 p</button>
+    </div>
+  </div>
+
+  <div class="section" id="sec-7">
+    <div class="section-header" onclick="toggleSection('sec-7')"><div class="title"><span class="num">07</span>图像导出</div><svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg></div>
+    <div class="section-body">
+      <div class="toggle-grid">
+        <div class="toggle-row on" id="row-exportIncludeBorder" onclick="toggleOption('exportIncludeBorder')"><span class="lbl">研究区边界</span><div class="switch"></div></div>
+        <div class="toggle-row on" id="row-exportIncludePoints" onclick="toggleOption('exportIncludePoints')"><span class="lbl">投点样点</span><div class="switch"></div></div>
+        <div class="toggle-row" id="row-exportIncludeGraticule" onclick="toggleOption('exportIncludeGraticule')"><span class="lbl">经纬网</span><div class="switch"></div></div>
+        <div class="toggle-row on" id="row-exportIncludeBasemap" onclick="toggleOption('exportIncludeBasemap')"><span class="lbl">地形底图</span><div class="switch"></div></div>
+      </div>
+      <button class="pdf" onclick="exportPDF()">导出投图区域 PDF</button>
+      <button class="csv" onclick="downloadCSV()">导出插值结果 CSV</button>
+      <button class="geojson" onclick="downloadGeoJSON()">导出研究区边界 GeoJSON</button>
+      <div id="log">请上传 CSV 数据…</div>
+    </div>
+  </div>
+</div>
+<div id="map"></div>
+
+<script>
+/* ============================================================================
+ * GapFixTileLayer —— 边缘复制 + 1px 物理重叠
+ * ========================================================================== */
+(function(){
+  if (typeof L === 'undefined') return;
+
+  const GapFixTileLayer = L.TileLayer.extend({
+    createTile: function(coords, done){
+      const size = this.getTileSize();
+      const canvas = document.createElement('canvas');
+      canvas.width  = size.x + 1;
+      canvas.height = size.y + 1;
+      canvas.onselectstart = canvas.onmousemove = L.Util.falseFn;
+      canvas.className = 'leaflet-tile gapfix-tile';
+
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = this.options.gapFillColor || '#1f2a26';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = true;
+
+      const tileUrl = this.getTileUrl(coords);
+
+      fetch(tileUrl, { mode: 'cors', credentials: 'omit', cache: 'default' })
+        .then(res => {
+          if(!res.ok) throw new Error('HTTP ' + res.status);
+          return res.blob();
+        })
+        .then(blob => {
+          const blobUrl = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0, size.x, size.y);
+            ctx.drawImage(img, size.x - 1, 0, 1, size.y, size.x, 0, 1, size.y);
+            ctx.drawImage(img, 0, size.y - 1, size.x, 1, 0, size.y, size.x, 1);
+            ctx.drawImage(img, size.x - 1, size.y - 1, 1, 1, size.x, size.y, 1, 1);
+            URL.revokeObjectURL(blobUrl);
+            done(null, canvas);
+          };
+          img.onerror = (e) => {
+            URL.revokeObjectURL(blobUrl);
+            done(null, canvas);
+          };
+          img.src = blobUrl;
+        })
+        .catch(e => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            try {
+              ctx.drawImage(img, 0, 0, size.x, size.y);
+              ctx.drawImage(img, size.x - 1, 0, 1, size.y, size.x, 0, 1, size.y);
+              ctx.drawImage(img, 0, size.y - 1, size.x, 1, 0, size.y, size.x, 1);
+              ctx.drawImage(img, size.x - 1, size.y - 1, 1, 1, size.x, size.y, 1, 1);
+            } catch(err) {}
+            done(null, canvas);
+          };
+          img.onerror = (err) => done(err, canvas);
+          img.src = tileUrl;
+        });
+
+      return canvas;
+    }
+  });
+
+  L.tileLayer.gapFix = function(url, options){ return new GapFixTileLayer(url, options); };
+})();
+
+function toggleSection(id){ const sec = document.getElementById(id); if(sec) sec.classList.toggle('collapsed'); }
+function syncNumInput(rangeId, numId){ const r = document.getElementById(rangeId); const n = document.getElementById(numId); if(r && n) n.value = r.value; }
+function syncRangeInput(rangeId, numId){
+  const r = document.getElementById(rangeId), n = document.getElementById(numId);
+  if(!r || !n) return;
+  let v = parseFloat(n.value);
+  const minV = parseFloat(r.min), maxV = parseFloat(r.max);
+  if(isNaN(v)) v = parseFloat(r.value);
+  if(v < minV) v = minV;
+  if(v > maxV) v = maxV;
+  r.value = v;
+}
+
+(function initHiddenCheckboxes(){
+  const ids = [
+    ['shapeVisible', true],['filterPoints', true],['perfMode', false],
+    ['invertRamp', false],['smoothGrid', true],['fixRange', false],
+    ['exportIncludeBorder', true],['exportIncludePoints', true],
+    ['exportIncludeGraticule', false],['exportIncludeBasemap', true]
+  ];
+  ids.forEach(([id, def]) => {
+    const input = document.createElement('input');
+    input.type = 'checkbox'; input.id = id; input.checked = def;
+    input.style.display = 'none'; document.body.appendChild(input);
+  });
+})();
+
+function toggleOption(id){
+  const input = document.getElementById(id);
+  const row = document.getElementById('row-' + id);
+  if(!input) return;
+  input.checked = !input.checked;
+  if(row){ if(input.checked) row.classList.add('on'); else row.classList.remove('on'); }
+  if(id === 'shapeVisible') toggleShapeVisible();
+  else if(id === 'filterPoints') drawPoints();
+}
+
+/* 只保留 Esri 底图 */
+const BASEMAPS = {
+  esri_img: { label:'Esri 世界影像',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    bgColor:'#1f2a26',
+    options: { maxNativeZoom: 19, maxZoom: 22, minZoom: 3, attribution: '© Esri World Imagery', gapFillColor: '#1f2a26' }, dim: true },
+  esri_topo: { label:'Esri 地形晕渲',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
+    bgColor:'#d9d2c4',
+    options: { maxNativeZoom: 13, maxZoom: 22, minZoom: 3, attribution: '© Esri', gapFillColor: '#d9d2c4' } }
+};
+
+let SAMPLES = [], ALL_COLS = [], X_COL = null, Y_COL = null;
+let mode = 'single';
+let imgOverlay = null, legend = null, ptLayer = null;
+let LAST_GRID = null, baseLayer = null;
+let searchEllipseLayer = null, ellipseVisible = false;
+let rendering = false, renderTimeout = null, exportingPDF = false;
+let studyAreaLayer = null, studyAreaGeoJSON = null;
+let graticuleLayer = null, graticuleVisible = true, dimLayer = null;
+window.SAMPLES = SAMPLES;
+
+const svgRenderer = L.svg();
+
+const map = L.map('map', {
+  center: [32, 88], zoom: 4,
+  minZoom: 3, maxZoom: 18,
+  zoomControl: false,
+  renderer: svgRenderer,
+  worldCopyJump: true
+});
+
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+map.attributionControl.setPosition('bottomleft');
+ptLayer = L.layerGroup().addTo(map);
+
+(function initDimPane(){
+  const p = map.createPane('dimPane');
+  p.style.zIndex = 250;
+  p.style.pointerEvents = 'none';
+})();
+
+const DimLayer = L.GridLayer.extend({
+  createTile: function(){
+    const tile = L.DomUtil.create('canvas', 'leaflet-tile');
+    const size = this.getTileSize();
+    tile.width = size.x; tile.height = size.y;
+    const ctx = tile.getContext('2d');
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(0, 0, size.x, size.y);
+    return tile;
+  }
+});
+
+map.on('click', function(e){
+  if(!LAST_GRID) return;
+  const {grid, nx, ny, xMin, yMin, xMax, yMax} = LAST_GRID;
+  const lat = e.latlng.lat, lng = e.latlng.lng;
+  if(lng < xMin || lng > xMax || lat < yMin || lat > yMax) return;
+  const dx = (xMax-xMin)/nx, dy = (yMax-yMin)/ny;
+  const i = Math.floor((lng - xMin) / dx);
+  const j = Math.floor((lat - yMin) / dy);
+  if(i < 0 || i >= nx || j < 0 || j >= ny) return;
+  const v = grid[j*nx+i];
+  L.popup().setLatLng(e.latlng)
+    .setContent(`<div style="font-size:12px;line-height:1.7">经度：${lng.toFixed(5)}<br>纬度：${lat.toFixed(5)}<br><b>插值：${v.toFixed(5)}</b><br>格网索引：[${i}, ${j}]</div>`)
+    .openOn(map);
+});
+
+function applyMapBgColor(hex){
+  const mapEl = document.getElementById('map');
+  if(!mapEl) return;
+  mapEl.style.background = hex;
+  mapEl.style.backgroundColor = hex;
+  try {
+    mapEl.querySelectorAll('.leaflet-map-pane, .leaflet-tile-pane').forEach(el => {
+      el.style.background = hex;
+    });
+    mapEl.querySelectorAll('.leaflet-tile-container').forEach(el => {
+      el.style.background = hex;
+    });
+  } catch(e) {}
+  try {
+    if(baseLayer && baseLayer._container){
+      baseLayer._container.style.background = hex;
+    }
+  } catch(e) {}
+}
+
+function switchBasemap(){
+  try{
+    const key = document.getElementById('baseSelect').value;
+    const def = BASEMAPS[key];
+    if(baseLayer){ map.removeLayer(baseLayer); baseLayer = null; }
+    if(def){
+      baseLayer = L.tileLayer.gapFix(def.url, Object.assign({}, def.options, {
+        keepBuffer: 4
+      })).addTo(map);
+      applyMapBgColor(def.bgColor || '#1f2a26');
+    } else {
+      applyMapBgColor('#1f2a26');
+    }
+    if(def && def.dim){
+      if(!dimLayer) dimLayer = new DimLayer({ pane: 'dimPane' });
+      if(!map.hasLayer(dimLayer)) dimLayer.addTo(map);
+    } else {
+      if(dimLayer && map.hasLayer(dimLayer)) map.removeLayer(dimLayer);
+    }
+    if(imgOverlay && imgOverlay.bringToFront) imgOverlay.bringToFront();
+    if(studyAreaLayer && studyAreaLayer.bringToFront) studyAreaLayer.bringToFront();
+    if(graticuleLayer && graticuleLayer.bringToFront) graticuleLayer.bringToFront();
+    if(ptLayer && ptLayer.bringToFront) ptLayer.bringToFront();
+    log('已切换底图：' + (def ? def.label : '无底图'));
+  }catch(err){ console.error('[switchBasemap 错误]', err); }
+}
+
+function getShapeStyle(){
+  const dashType = document.getElementById('shapeDashType').value;
+  const dashMap = { solid: null, dash: '6,4', dot: '1,4', dashdot: '10,4,2,4', longdash: '15,8', dashdotdot: '10,4,2,4,2,4' };
+  return {
+    color: document.getElementById('shapeColor').value,
+    weight: parseFloat(document.getElementById('shapeWeight').value),
+    dashArray: dashMap[dashType] || null,
+    opacity: 1.0, fill: false
+  };
+}
+function updateStudyAreaStyle(){
+  if(!studyAreaLayer) return;
+  studyAreaLayer.setStyle(getShapeStyle());
+  if(studyAreaLayer.bringToFront) studyAreaLayer.bringToFront();
+}
+function toggleShapeVisible(){
+  if(!studyAreaLayer) return;
+  if(document.getElementById('shapeVisible').checked){
+    if(!map.hasLayer(studyAreaLayer)) studyAreaLayer.addTo(map);
+  } else {
+    if(map.hasLayer(studyAreaLayer)) map.removeLayer(studyAreaLayer);
+  }
+}
+
+function formatLngLabel(lng){
+  const dir = lng >= 0 ? 'E' : 'W';
+  const abs = Math.abs(lng);
+  const dec = abs % 1 === 0 ? 0 : (abs * 10 % 1 === 0 ? 1 : 2);
+  return `${abs.toFixed(dec)}°${dir}`;
+}
+function formatLatLabel(lat){
+  const dir = lat >= 0 ? 'N' : 'S';
+  const abs = Math.abs(lat);
+  const dec = abs % 1 === 0 ? 0 : (abs * 10 % 1 === 0 ? 1 : 2);
+  return `${abs.toFixed(dec)}°${dir}`;
+}
+function pickGraticuleInterval(zoom){
+  if (zoom <= 2) return 20;
+  if (zoom <= 3) return 10;
+  if (zoom <= 4) return 5;
+  if (zoom <= 5) return 2;
+  if (zoom <= 6) return 1;
+  if (zoom <= 7) return 0.5;
+  if (zoom <= 8) return 0.2;
+  if (zoom <= 9) return 0.1;
+  if (zoom <= 10) return 0.05;
+  if (zoom <= 11) return 0.02;
+  if (zoom <= 12) return 0.01;
+  if (zoom <= 13) return 0.005;
+  if (zoom <= 14) return 0.002;
+  return 0.001;
+}
+function updateGraticule(){
+  if (!graticuleVisible) return;
+  if (graticuleLayer) { map.removeLayer(graticuleLayer); graticuleLayer = null; }
+  graticuleLayer = L.layerGroup();
+  const bounds = map.getBounds();
+  const zoom = map.getZoom();
+  const interval = pickGraticuleInterval(zoom);
+  const west = bounds.getWest(), east = bounds.getEast();
+  const south = bounds.getSouth(), north = bounds.getNorth();
+  const lngSpan = east - west, latSpan = north - south;
+  if (lngSpan / interval > 60 || latSpan / interval > 60) return;
+  const lineStyle = { color: '#000000', weight: 0.8, opacity: 0.38, interactive: false, renderer: svgRenderer };
+  const startLng = Math.ceil(west / interval) * interval;
+  const endLng = Math.floor(east / interval) * interval;
+  for (let lng = startLng; lng <= endLng + 1e-9; lng += interval) {
+    const v = Math.round(lng * 1e6) / 1e6;
+    L.polyline([[south, v], [north, v]], lineStyle).addTo(graticuleLayer);
+    L.marker([north - latSpan * 0.015, v], {
+      icon: L.divIcon({ className: 'graticule-label', html: formatLngLabel(v), iconSize: [50, 14], iconAnchor: [25, 7] }),
+      interactive: false
+    }).addTo(graticuleLayer);
+  }
+  const startLat = Math.ceil(south / interval) * interval;
+  const endLat = Math.floor(north / interval) * interval;
+  for (let lat = startLat; lat <= endLat + 1e-9; lat += interval) {
+    const v = Math.round(lat * 1e6) / 1e6;
+    L.polyline([[v, west], [v, east]], lineStyle).addTo(graticuleLayer);
+    L.marker([v, west + lngSpan * 0.015], {
+      icon: L.divIcon({ className: 'graticule-label', html: formatLatLabel(v), iconSize: [50, 14], iconAnchor: [25, 7] }),
+      interactive: false
+    }).addTo(graticuleLayer);
+  }
+  graticuleLayer.addTo(map);
+  if(imgOverlay && imgOverlay.bringToFront) imgOverlay.bringToFront();
+  if(studyAreaLayer && studyAreaLayer.bringToFront) studyAreaLayer.bringToFront();
+}
+function toggleGraticule(){
+  graticuleVisible = !graticuleVisible;
+  const btn = document.getElementById('graticuleToggleBtn');
+  if (graticuleVisible) { updateGraticule(); if(btn){ btn.textContent='隐藏经纬网'; btn.classList.add('toggleOn'); } }
+  else { if(graticuleLayer){ map.removeLayer(graticuleLayer); graticuleLayer=null; } if(btn){ btn.textContent='显示经纬网'; btn.classList.remove('toggleOn'); } }
+}
+map.on('moveend', updateGraticule);
+map.on('zoomend', updateGraticule);
+
+function parseCSV(text){
+  const lines = text.trim().split(/\r?\n/);
+  if(lines.length < 2) throw new Error('文件行数不足');
+  const sep = lines[0].includes('\t') ? '\t' : ',';
+  const headers = lines[0].split(sep).map(h=>h.trim().replace(/^"|"$/g,''));
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    if(!lines[i].trim()) continue;
+    const vals = lines[i].split(sep).map(v=>v.trim().replace(/^"|"$/g,''));
+    const obj = {};
+    headers.forEach((h,j)=>{ obj[h] = vals[j]; });
+    rows.push(obj);
+  }
+  return {headers, rows};
+}
+function detectXY(headers){
+  const lngKeys = ['lng','lon','longitude','经度','x','east','easting'];
+  const latKeys = ['lat','latitude','纬度','y','north','northing'];
+  let xCol = headers.find(h=>lngKeys.some(k=>h.toLowerCase()===k.toLowerCase()||h.includes(k)));
+  let yCol = headers.find(h=>latKeys.some(k=>h.toLowerCase()===k.toLowerCase()||h.includes(k)));
+  if(!xCol) xCol = headers[0];
+  if(!yCol) yCol = headers[1];
+  return {xCol, yCol};
+}
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.onclick = ()=> fileInput.click();
+dropZone.ondragover = e=>{ e.preventDefault(); dropZone.classList.add('hover'); };
+dropZone.ondragleave = ()=> dropZone.classList.remove('hover');
+dropZone.ondrop = e=>{ e.preventDefault(); dropZone.classList.remove('hover'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); };
+fileInput.onchange = e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); };
+
+function handleFile(file){
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    try{
+      const {headers, rows} = parseCSV(ev.target.result);
+      ALL_COLS = headers;
+      const {xCol, yCol} = detectXY(headers);
+      X_COL = xCol; Y_COL = yCol;
+      window.RAW_ROWS = rows;
+      populateFields(headers, xCol, yCol);
+      rebuildSamples();
+      if(SAMPLES.length > 0){
+        const lats = SAMPLES.map(s=>s.lat), lngs = SAMPLES.map(s=>s.lng);
+        map.fitBounds([[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]], {padding:[40, 40], animate: true});
+      }
+      if(rows.length > 200){ document.getElementById('perfMode').checked = true; document.getElementById('row-perfMode').classList.add('on'); }
+      log(`已加载 ${rows.length} 行，${headers.length} 列\n经度列：${xCol}，纬度列：${yCol}\n地图已缩放到数据位置`);
+    }catch(err){ log('解析失败：' + err.message); }
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+function populateFields(headers, xCol, yCol){
+  const numericCols = headers.filter(h=>h!==xCol && h!==yCol);
+  const fill = (sel, arr, selected)=>{ sel.innerHTML = arr.map(h=>`<option value="${h}" ${h===selected?'selected':''}>${h}</option>`).join(''); };
+  fill(document.getElementById('fieldSingle'), numericCols);
+  fill(document.getElementById('fieldNum'), numericCols, numericCols[0]);
+  fill(document.getElementById('fieldDen'), numericCols, numericCols[1]||numericCols[0]);
+  updateRatioPreview();
+}
+function switchMode(m){
+  mode = m;
+  document.getElementById('tabSingle').classList.toggle('active', m==='single');
+  document.getElementById('tabRatio').classList.toggle('active', m==='ratio');
+  document.getElementById('singleBox').style.display = m==='single'?'block':'none';
+  document.getElementById('ratioBox').style.display = m==='ratio'?'block':'none';
+  rebuildSamples();
+}
+document.getElementById('fieldNum').onchange = updateRatioPreview;
+document.getElementById('fieldDen').onchange = updateRatioPreview;
+document.getElementById('ratioType').onchange = updateRatioPreview;
+document.getElementById('fieldSingle').onchange = rebuildSamples;
+
+function updateRatioPreview(){
+  const a = document.getElementById('fieldNum').value;
+  const b = document.getElementById('fieldDen').value;
+  if(!window.RAW_ROWS) return;
+  const t = document.getElementById('ratioType').value;
+  const vals = window.RAW_ROWS.slice(0,5).map(r=>{
+    const va = parseFloat(r[a]), vb = parseFloat(r[b]);
+    let res = 'NaN';
+    if(t==='simple' && isFinite(va/vb)) res = (va/vb).toFixed(3);
+    if(t==='pct' && isFinite(va/(va+vb))) res = (va/(va+vb)*100).toFixed(2)+'%';
+    if(t==='log' && va>0 && vb>0) res = Math.log10(va/vb).toFixed(3);
+    return `${a}/${b} = ${res}`;
+  });
+  document.getElementById('ratioPreview').innerHTML = vals.join('<br>');
+  rebuildSamples();
+}
+function rebuildSamples(){
+  if(!window.RAW_ROWS) return;
+  const rows = window.RAW_ROWS;
+  SAMPLES = [];
+  const valFn = buildValueFn();
+  rows.forEach(r=>{
+    const lng = parseFloat(r[X_COL]), lat = parseFloat(r[Y_COL]);
+    const v = valFn(r);
+    if(isFinite(lng) && isFinite(lat) && isFinite(v)){ SAMPLES.push({x:lng, y:lat, value:v, lng, lat, raw:r}); }
+  });
+  window.SAMPLES = SAMPLES;
+  drawPoints();
+  updateStat();
+}
+function buildValueFn(){
+  if(mode==='single'){ const f = document.getElementById('fieldSingle').value; return r=> parseFloat(r[f]); }
+  else {
+    const a = document.getElementById('fieldNum').value;
+    const b = document.getElementById('fieldDen').value;
+    const t = document.getElementById('ratioType').value;
+    if(t==='simple') return r=> parseFloat(r[a]) / parseFloat(r[b]);
+    if(t==='pct')    return r=>{ const va=parseFloat(r[a]), vb=parseFloat(r[b]); return va/(va+vb)*100; };
+    if(t==='log')    return r=> Math.log10(parseFloat(r[a]) / parseFloat(r[b]));
+  }
+}
+function updateStat(){
+  const el = document.getElementById('stat');
+  if(!SAMPLES.length){ el.textContent = '尚未加载数据'; return; }
+  const vals = SAMPLES.map(s=>s.value);
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+  el.innerHTML = `有效样点：<b>${SAMPLES.length}</b> 个<br>值域：[${vmin.toFixed(4)}, ${vmax.toFixed(4)}]<br>均值：${mean.toFixed(4)}`;
+}
+
+function drawPoints(){
+  ptLayer.clearLayers();
+  if(!SAMPLES.length) return;
+  const vals = SAMPLES.map(s=>s.value);
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  const userSize = parseFloat(document.getElementById('pointSize').value) || 3;
+  const filterEnabled = document.getElementById('filterPoints') ? document.getElementById('filterPoints').checked : false;
+  const hasShape = !!studyAreaGeoJSON;
+  const useFilter = filterEnabled && hasShape;
+  const d3Available = (typeof d3 !== 'undefined' && typeof d3.geoContains === 'function');
+  for(let i=0;i<SAMPLES.length;i++){
+    const s = SAMPLES[i];
+    if(useFilter && d3Available){
+      let inside = false;
+      try { inside = d3.geoContains(studyAreaGeoJSON, [s.lng, s.lat]); } catch(e) { inside = true; }
+      if(!inside) continue;
+    }
+    const t = (s.value - vmin) / (vmax - vmin || 1);
+    const color = `hsl(${(1-t)*240},80%,50%)`;
+    L.circleMarker([s.lat, s.lng], { radius: userSize, color:'#333', fillColor:color, fillOpacity:0.9, weight:0.5, renderer: svgRenderer })
+      .bindPopup(`经度: ${s.lng.toFixed(4)}<br>纬度: ${s.lat.toFixed(4)}<br>值 = ${s.value.toFixed(4)}`).addTo(ptLayer);
+  }
+}
+
+const shapeZone = document.getElementById('shapeZone');
+const shapeInput = document.getElementById('shapeInput');
+shapeZone.onclick = ()=> shapeInput.click();
+shapeZone.ondragover = e=>{ e.preventDefault(); shapeZone.classList.add('hover'); };
+shapeZone.ondragleave = ()=> shapeZone.classList.remove('hover');
+shapeZone.ondrop = e=>{ e.preventDefault(); shapeZone.classList.remove('hover'); if(e.dataTransfer.files[0]) handleShapeFile(e.dataTransfer.files[0]); };
+shapeInput.onchange = e=>{ if(e.target.files[0]) handleShapeFile(e.target.files[0]); };
+
+function handleShapeFile(file){
+  const reader = new FileReader();
+  reader.onload = ev=>{ try{ loadStudyArea(JSON.parse(ev.target.result)); } catch(err){ log('GeoJSON 解析失败：' + err.message); } };
+  reader.readAsText(file, 'UTF-8');
+}
+function loadStudyArea(geojson){
+  if(studyAreaLayer) map.removeLayer(studyAreaLayer);
+  studyAreaGeoJSON = geojson;
+  studyAreaLayer = L.geoJSON(geojson, { style: getShapeStyle(), renderer: svgRenderer }).addTo(map);
+  try { map.fitBounds(studyAreaLayer.getBounds(), {padding:[40,40]}); } catch(e){}
+  document.getElementById('shapeVisible').checked = true;
+  document.getElementById('row-shapeVisible').classList.add('on');
+  log('✅ 研究区边界已加载');
+  drawPoints();
+}
+function clearStudyArea(){
+  if(studyAreaLayer){ map.removeLayer(studyAreaLayer); studyAreaLayer = null; studyAreaGeoJSON = null; log('已清除研究区边界'); drawPoints(); }
+}
+
+function extractPolygons(geojson){
+  if(!geojson) return [];
+  const polygons = [];
+  let features = [];
+  if(geojson.type === 'FeatureCollection') features = geojson.features;
+  else if(geojson.type === 'Feature') features = [geojson];
+  else features = [{ geometry: geojson }];
+  features.forEach(f => {
+    const g = f.geometry || f;
+    if(!g || !g.type) return;
+    if(g.type === 'Polygon') polygons.push(g.coordinates[0]);
+    else if(g.type === 'MultiPolygon') g.coordinates.forEach(poly => polygons.push(poly[0]));
+  });
+  return polygons;
+}
+function pointToSegmentDist(px, py, x1, y1, x2, y2){
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx*dx + dy*dy;
+  if(len2 === 0) return Math.hypot(px - x1, py - y1);
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t*dx), py - (y1 + t*dy));
+}
+function pointToPolygonDist(lng, lat, polygon){
+  let minD = Infinity;
+  for(let i = 0, j = polygon.length - 1; i < polygon.length; j = i++){
+    const d = pointToSegmentDist(lng, lat, polygon[j][0], polygon[j][1], polygon[i][0], polygon[i][1]);
+    if(d < minD) minD = d;
+  }
+  return minD;
+}
+
+function computeDataRange(){
+  const lngs = SAMPLES.map(s=>s.x).sort((a,b)=>a-b);
+  const lats = SAMPLES.map(s=>s.y).sort((a,b)=>a-b);
+  const q = (arr, p) => arr[Math.max(0, Math.min(arr.length-1, Math.floor(arr.length * p)))];
+  const xLo = q(lngs, 0.05), xHi = q(lngs, 0.95);
+  const yLo = q(lats, 0.05), yHi = q(lats, 0.95);
+  return { rangeX: xHi - xLo, rangeY: yHi - yLo, latCenter: (yHi + yLo) / 2 };
+}
+function applyAndRender(kind){
+  if(SAMPLES.length < 3){ log('请先加载数据'); return; }
+  let baseRangeX, baseRangeY, latCenter, sourceLabel;
+  if(studyAreaLayer){
+    const sb = studyAreaLayer.getBounds();
+    baseRangeX = sb.getEast() - sb.getWest();
+    baseRangeY = sb.getNorth() - sb.getSouth();
+    latCenter = (sb.getNorth() + sb.getSouth()) / 2;
+    sourceLabel = '研究区范围';
+  } else {
+    const r = computeDataRange();
+    baseRangeX = r.rangeX; baseRangeY = r.rangeY; latCenter = r.latCenter;
+    sourceLabel = '数据范围';
+  }
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * Math.cos(latCenter * Math.PI / 180);
+  const factor = 0.5;
+  const halfW = baseRangeX * mPerDegLng / 2, halfH = baseRangeY * mPerDegLat / 2;
+  const radiusM = Math.max(halfW, halfH) * factor;
+  const majorDeg = radiusM / mPerDegLng, minorDeg = radiusM / mPerDegLat;
+  document.getElementById('major').value = majorDeg.toFixed(5);
+  document.getElementById('minor').value = minorDeg.toFixed(5);
+  log(`【椭圆已设置】${sourceLabel} × ${factor}\n  主轴 ${majorDeg.toFixed(5)}°，次轴 ${minorDeg.toFixed(5)}°\n  请点"执行 IDW 插值填图"`);
+  if(ellipseVisible){ showSearchEllipse(); }
+}
+function toggleSearchEllipse(){ if(ellipseVisible){ hideSearchEllipse(); } else { showSearchEllipse(); } }
+function showSearchEllipse(){
+  hideSearchEllipse(false);
+  if(!SAMPLES.length){ log('请先加载数据'); return; }
+  const cfg = readCfg();
+  const lats = SAMPLES.map(s=>s.y), lngs = SAMPLES.map(s=>s.x);
+  const latMin = Math.min(...lats), latMax = Math.max(...lats);
+  const lngMin = Math.min(...lngs), lngMax = Math.max(...lngs);
+  const centers = [[latMin, lngMin], [latMin, lngMax], [latMax, lngMin], [latMax, lngMax], [(latMin+latMax)/2, (lngMin+lngMax)/2]];
+  const mPerDegLat = 111320;
+  const group = L.layerGroup();
+  centers.forEach((center, idx) => {
+    const mPerDegLng = 111320 * Math.cos(center[0] * Math.PI / 180);
+    const majorM = cfg.major * mPerDegLng, minorM = cfg.minor * mPerDegLat;
+    const points = [];
+    for(let i=0;i<48;i++){
+      const theta = 2 * Math.PI * i / 48;
+      const dLat = (minorM * Math.sin(theta)) / mPerDegLat;
+      const dLng = (majorM * Math.cos(theta)) / mPerDegLng;
+      points.push([center[0] + dLat, center[1] + dLng]);
+    }
+    group.addLayer(L.polygon(points, { color: idx === 4 ? '#ff0000' : '#ff8800', weight: 2, fill: false, dashArray: '6,4', renderer: svgRenderer }));
+  });
+  searchEllipseLayer = group.addTo(map);
+  ellipseVisible = true;
+  updateEllipseBtn();
+  log(`已显示 5 个椭圆`);
+}
+function hideSearchEllipse(updateState = true){
+  if(searchEllipseLayer){ map.removeLayer(searchEllipseLayer); searchEllipseLayer = null; }
+  if(updateState){ ellipseVisible = false; updateEllipseBtn(); }
+}
+function updateEllipseBtn(){
+  const btn = document.getElementById('ellipseToggleBtn');
+  if(ellipseVisible){ btn.textContent = '隐藏搜索椭圆'; btn.classList.add('toggleOn'); }
+  else { btn.textContent = '显示搜索椭圆'; btn.classList.remove('toggleOn'); }
+}
+
+function idwPredict(x0, y0, samples, cfg){
+  const rad = cfg.angle * Math.PI / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const a = cfg.major, b = cfg.minor;
+  const nSec = cfg.nSectors;
+  const perSec = Math.max(1, Math.ceil(cfg.maxN / nSec));
+  const candidates = [];
+  for(const s of samples){
+    const dx = s.x - x0, dy = s.y - y0;
+    const u = dx*cos + dy*sin, v = -dx*sin + dy*cos;
+    if(Math.sqrt((u/a)**2 + (v/b)**2) > 1) continue;
+    const dReal = Math.hypot(dx, dy);
+    let ang = Math.atan2(v, u);
+    if(cfg.sectorOffset) ang += Math.PI / nSec;
+    let sec = Math.floor((ang + Math.PI) / (2*Math.PI/nSec)) % nSec;
+    candidates.push({s, d: dReal, sec});
+  }
+  if(candidates.length === 0){
+    for(const scale of [3, 10]){
+      const a2 = a * scale, b2 = b * scale;
+      const cands2 = [];
+      for(const s of samples){
+        const dx = s.x - x0, dy = s.y - y0;
+        const u = dx*cos + dy*sin, v = -dx*sin + dy*cos;
+        if(Math.sqrt((u/a2)**2 + (v/b2)**2) > 1) continue;
+        cands2.push({s, d: Math.hypot(dx, dy)});
+      }
+      if(cands2.length > 0){
+        cands2.sort((m, n) => m.d - n.d);
+        const topN = cands2.slice(0, Math.min(cfg.maxN, cands2.length));
+        let wSum = 0, wvSum = 0;
+        for(const {s, d} of topN){
+          if(d === 0) return s.value;
+          const w = 1 / Math.pow(d, cfg.power);
+          wSum += w; wvSum += w * s.value;
+        }
+        return wvSum / wSum;
+      }
+    }
+    let best = null, bestD = Infinity;
+    for(const s of samples){
+      const d = Math.hypot(s.x - x0, s.y - y0);
+      if(d < bestD){ bestD = d; best = s; }
+    }
+    return best ? best.value : 0;
+  }
+  candidates.sort((m, n) => m.d - n.d);
+  const secCount = new Array(nSec).fill(0);
+  const chosen = [];
+  for(const c of candidates){
+    if(chosen.length >= cfg.maxN) break;
+    if(secCount[c.sec] >= perSec) continue;
+    chosen.push(c);
+    secCount[c.sec]++;
+  }
+  if(chosen.length < cfg.minN){
+    const chosenSet = new Set(chosen.map(c=>c.s));
+    for(const c of candidates){
+      if(chosen.length >= cfg.minN) break;
+      if(!chosenSet.has(c.s)){ chosen.push(c); chosenSet.add(c.s); }
+    }
+  }
+  let wSum = 0, wvSum = 0;
+  for(const {s, d} of chosen){
+    if(d === 0) return s.value;
+    const w = 1 / Math.pow(d, cfg.power);
+    wSum += w; wvSum += w * s.value;
+  }
+  return wvSum / wSum;
+}
+window.idwPredict = idwPredict;
+
+function crossValidate(samples, p, cfg){
+  let se=0; const eps = 1e-8;
+  for(let i=0;i<samples.length;i++){
+    const rest = samples.slice(0,i).concat(samples.slice(i+1));
+    const pred = idwPredict(samples[i].x + eps, samples[i].y + eps, rest, {...cfg, power:p});
+    se += (pred - samples[i].value)**2;
+  }
+  return Math.sqrt(se/samples.length);
+}
+function autoPower(){
+  if(SAMPLES.length < 5){ log('样点太少，无法交叉验证'); return; }
+  const cfg = readCfg();
+  const cand = [1,1.5,2,2.5,3,4];
+  const scores = [];
+  let idx = 0;
+  function step(){
+    if(idx >= cand.length){
+      scores.sort((m,n)=>m.rmse-n.rmse);
+      document.getElementById('power').value = scores[0].p;
+      log('RMSE–p 曲线：\n' + scores.map(s=>`p=${s.p}  RMSE=${s.rmse.toFixed(6)}`).join('\n') + `\n→ 自动选择 p=${scores[0].p}`);
+      return;
+    }
+    const p = cand[idx++];
+    scores.push({p, rmse: crossValidate(SAMPLES, p, cfg)});
+    setTimeout(step, 0);
+  }
+  step();
+}
+
+const RAMPS = {
+  geo: ['#313695','#4575b4','#74add1','#abd9e9','#e0f3f8','#ffffbf','#fee090','#fdae61','#f46d43','#d73027','#a50026'],
+  spectral: ['#5e4fa2','#3288bd','#66c2a5','#abdda4','#e6f598','#ffffbf','#fee08b','#fdae61','#f46d43','#d53e4f','#9e0142'],
+  green_red: ['#006837','#1a9850','#66bd63','#a6d96a','#d9ef8b','#ffffbf','#fee08b','#fdae61','#f46d43','#d73027','#a50026'],
+  gray: ['#000000','#1a1a1a','#333333','#4d4d4d','#666666','#808080','#999999','#b3b3b3','#cccccc','#e6e6e6','#ffffff']
+};
+window.RAMPS = RAMPS;
+
+function readCfg(){
+  const secVal = document.getElementById('sectors').value;
+  return {
+    power: +document.getElementById('power').value,
+    maxN: +document.getElementById('maxN').value,
+    minN: +document.getElementById('minN').value,
+    nSectors: secVal.startsWith('4') ? 4 : secVal==='8' ? 8 : 1,
+    sectorOffset: secVal==='4o',
+    angle: +document.getElementById('ang').value,
+    major: +document.getElementById('major').value,
+    minor: +document.getElementById('minor').value
+  };
+}
+function decideGridSize(nx, ny){
+  const perf = document.getElementById('perfMode').checked;
+  const maxGrid = +document.getElementById('maxGrid').value || 150;
+  const n = SAMPLES.length;
+  let limit = maxGrid;
+  if(perf || n > 500) limit = Math.min(limit, 100);
+  else if(n > 200) limit = Math.min(limit, 130);
+  if(nx > limit){ ny = Math.round(ny * limit / nx); nx = limit; }
+  if(ny > limit){ nx = Math.round(nx * limit / ny); ny = limit; }
+  return {nx, ny};
+}
+function smoothGrid(grid, nx, ny){
+  if(!grid || !nx || !ny) return grid;
+  const out = new Float32Array(grid.length);
+  for(let j=0;j<ny;j++){
+    for(let i=0;i<nx;i++){
+      if(i === 0 || j === 0 || i === nx-1 || j === ny-1){ out[j*nx+i] = grid[j*nx+i]; continue; }
+      const win = [];
+      for(let dj=-1;dj<=1;dj++) for(let di=-1;di<=1;di++) win.push(grid[(j+dj)*nx + (i+di)]);
+      win.sort((a,b)=>a-b);
+      out[j*nx+i] = win[4];
+    }
+  }
+  return out;
+}
+
+function render(){
+  if(rendering){ log('正在渲染中，请稍等…'); return; }
+  if(SAMPLES.length < 3){ log('样点不足，至少需要 3 个有效点'); return; }
+  const cfg = readCfg();
+  log(`【开始插值】p=${cfg.power}, maxN=${cfg.maxN}, minN=${cfg.minN}\n  椭圆：${cfg.major}° × ${cfg.minor}°`);
+  rendering = true;
+  if(renderTimeout) clearTimeout(renderTimeout);
+  renderTimeout = setTimeout(()=>{
+    if(rendering){ rendering = false; document.getElementById('progressBar').style.display = 'none'; log('渲染超时（60s），已自动重置。'); }
+  }, 60000);
+
+  const cell = +document.getElementById('cell').value;
+  const lngs = SAMPLES.map(s=>s.x), lats = SAMPLES.map(s=>s.y);
+  let xMin, xMax, yMin, yMax;
+  const tolDeg = parseFloat(document.getElementById('shapeTolerance').value) || 0;
+  const EXTRA = 0.1;
+  if(studyAreaLayer){
+    try {
+      const sb = studyAreaLayer.getBounds();
+      const padDeg = tolDeg + EXTRA;
+      xMin = sb.getWest() - padDeg; xMax = sb.getEast() + padDeg;
+      yMin = sb.getSouth() - padDeg; yMax = sb.getNorth() + padDeg;
+    } catch(e){
+      const w = Math.max(...lngs)-Math.min(...lngs), h = Math.max(...lats)-Math.min(...lats);
+      const padDeg = Math.max(w, h) * 0.1;
+      xMin = Math.min(...lngs)-padDeg; xMax = Math.max(...lngs)+padDeg;
+      yMin = Math.min(...lats)-padDeg; yMax = Math.max(...lats)+padDeg;
+    }
+  } else {
+    const w = Math.max(...lngs)-Math.min(...lngs), h = Math.max(...lats)-Math.min(...lats);
+    const padDeg = Math.max(w, h) * 0.1;
+    xMin = Math.min(...lngs)-padDeg; xMax = Math.max(...lngs)+padDeg;
+    yMin = Math.min(...lats)-padDeg; yMax = Math.max(...lats)+padDeg;
+  }
+
+  let nx = Math.max(30, Math.ceil((xMax-xMin)/cell));
+  let ny = Math.max(30, Math.ceil((yMax-yMin)/cell));
+  ({nx, ny} = decideGridSize(nx, ny));
+  const dx = (xMax-xMin)/nx, dy = (yMax-yMin)/ny;
+
+  const progressEl = document.getElementById('progressBar');
+  const progressInner = document.getElementById('progressInner');
+  progressEl.style.display = 'block';
+  progressInner.style.width = '0%';
+
+  let grid = new Float32Array(nx*ny);
+  let vmin = Infinity, vmax = -Infinity;
+  let j = 0;
+  const t0 = performance.now();
+  const rowsPerChunk = Math.max(1, Math.floor(ny / 20));
+
+  function doChunk(){
+    try{
+      const endJ = Math.min(ny, j + rowsPerChunk);
+      for(; j < endJ; j++){
+        for(let i=0;i<nx;i++){
+          const v = idwPredict(xMin+i*dx, yMin+j*dy, SAMPLES, cfg);
+          grid[j*nx+i] = v;
+          if(v<vmin) vmin=v; if(v>vmax) vmax=v;
+        }
+      }
+      progressInner.style.width = Math.round(j / ny * 100) + '%';
+      if(j < ny){ setTimeout(doChunk, 0); }
+      else {
+        if(document.getElementById('smoothGrid').checked) grid = smoothGrid(grid, nx, ny);
+        finalizeRender(grid, nx, ny, xMin, yMin, xMax, yMax, vmin, vmax, cfg, t0);
+      }
+    }catch(err){
+      console.error('[doChunk 错误]', err);
+      if(renderTimeout) clearTimeout(renderTimeout);
+      rendering = false;
+      progressEl.style.display = 'none';
+      log('插值出错：' + err.message);
+    }
+  }
+  setTimeout(doChunk, 0);
+}
+function finalizeRender(grid, nx, ny, xMin, yMin, xMax, yMax, vmin, vmax, cfg, t0){
+  if(renderTimeout) clearTimeout(renderTimeout);
+  const dx = (xMax - xMin) / nx, dy = (yMax - yMin) / ny;
+  const rampKey = document.getElementById('ramp').value;
+  let ramp = RAMPS[rampKey] || RAMPS.geo;
+  ramp = ramp.slice();
+  if(document.getElementById('invertRamp').checked) ramp = ramp.reverse();
+
+  let finalVmin = vmin, finalVmax = vmax;
+  if(document.getElementById('fixRange').checked){
+    const mMin = +document.getElementById('manualVmin').value;
+    const mMax = +document.getElementById('manualVmax').value;
+    if(isFinite(mMin) && isFinite(mMax) && mMax > mMin){ finalVmin = mMin; finalVmax = mMax; }
+  }
+  LAST_GRID = {grid, nx, ny, xMin, xMax, yMin, yMax, vmin: finalVmin, vmax: finalVmax, ramp};
+
+  const cv = document.createElement('canvas');
+  cv.width = nx; cv.height = ny;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(nx, ny);
+  const hex2rgb = h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+  const rgbRamp = ramp.map(hex2rgb);
+
+  const studyPolygons = extractPolygons(studyAreaGeoJSON);
+  const hasStudyArea = studyPolygons.length > 0;
+  const tolerance = hasStudyArea ? parseFloat(document.getElementById('shapeTolerance').value) || 0 : 0;
+  const d3Available = (typeof d3 !== 'undefined' && typeof d3.geoContains === 'function');
+
+  for(let j=0;j<ny;j++){
+    const lat = yMin + j * dy;
+    const canvasRow = ny - 1 - j;
+    for(let i=0;i<nx;i++){
+      const lng = xMin + i * dx;
+      if(hasStudyArea){
+        let inside = false;
+        if(d3Available){ try { inside = d3.geoContains(studyAreaGeoJSON, [lng, lat]); } catch(e) { inside = false; } }
+        if(!inside && tolerance > 0){
+          for(const poly of studyPolygons){ if(pointToPolygonDist(lng, lat, poly) <= tolerance){ inside = true; break; } }
+        }
+        if(!inside){
+          const k = (canvasRow * nx + i) * 4;
+          img.data[k] = 255; img.data[k+1] = 255; img.data[k+2] = 255; img.data[k+3] = 0;
+          continue;
+        }
+      }
+      const v = grid[j*nx + i];
+      const t = Math.max(0, Math.min(1, (v - finalVmin) / (finalVmax - finalVmin || 1)));
+      const f = t * (rgbRamp.length - 1);
+      const c0 = rgbRamp[Math.floor(f)], c1 = rgbRamp[Math.min(rgbRamp.length-1, Math.ceil(f))];
+      const fr = f - Math.floor(f);
+      const k = (canvasRow * nx + i) * 4;
+      img.data[k]   = c0[0] + (c1[0]-c0[0]) * fr;
+      img.data[k+1] = c0[1] + (c1[1]-c0[1]) * fr;
+      img.data[k+2] = c0[2] + (c1[2]-c0[2]) * fr;
+      img.data[k+3] = 200;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const url = cv.toDataURL('image/png');
+  if(imgOverlay) map.removeLayer(imgOverlay);
+  imgOverlay = L.imageOverlay(url, [[yMin,xMin],[yMax,xMax]], {opacity:0.85}).addTo(map);
+  if(imgOverlay.bringToFront) imgOverlay.bringToFront();
+  if(studyAreaLayer && studyAreaLayer.bringToFront) studyAreaLayer.bringToFront();
+  if(ptLayer && ptLayer.bringToFront) ptLayer.bringToFront();
+
+  if(legend) map.removeControl(legend);
+  legend = L.control({position:'bottomright'});
+  legend.onAdd = function(){
+    const div = L.DomUtil.create('div','legend');
+    const title = mode==='single' ? document.getElementById('fieldSingle').value : document.getElementById('fieldNum').value+'/'+document.getElementById('fieldDen').value;
+    let h = `<b>${title} IDW 填图（p=${cfg.power}）</b><br>`;
+    for(let i=0;i<ramp.length;i++){
+      const v = finalVmin + (finalVmax-finalVmin)*i/(ramp.length-1);
+      h += `<i style="background:${ramp[i]}"></i>${v.toFixed(4)}<br>`;
+    }
+    h += `<div style="margin-top:6px;color:#89979e;font-size:10px">点击地图可查看具体数值</div>`;
+    div.innerHTML = h; return div;
+  };
+  legend.addTo(map);
+
+  fixControlLayout();
+
+  const dt = ((performance.now()-t0)/1000).toFixed(1);
+  log(`【插值完成】格网 ${nx}×${ny}，耗时 ${dt}s\n值域 [${finalVmin.toFixed(4)}, ${finalVmax.toFixed(4)}]\n椭圆 ${cfg.major}° / ${cfg.minor}°` + (hasStudyArea ? `\n已按研究区裁剪（外扩 ${tolerance}°）` : ''));
+  document.getElementById('progressBar').style.display = 'none';
+  rendering = false;
+}
+
+function fixControlLayout(){
+  let tries = 0;
+  const maxTries = 20;
+  function apply(){
+    const container = document.querySelector('.leaflet-bottom.leaflet-right');
+    if(container){
+      container.style.setProperty('display', 'flex', 'important');
+      container.style.setProperty('flex-direction', 'row', 'important');
+      container.style.setProperty('align-items', 'flex-end', 'important');
+      container.style.setProperty('justify-content', 'flex-end', 'important');
+      container.style.setProperty('gap', '10px', 'important');
+      container.style.setProperty('padding', '12px', 'important');
+      container.style.setProperty('pointer-events', 'none', 'important');
+      const controls = container.querySelectorAll('.leaflet-control');
+      controls.forEach(c => {
+        c.style.setProperty('float', 'none', 'important');
+        c.style.setProperty('clear', 'none', 'important');
+        c.style.setProperty('margin', '0', 'important');
+        c.style.setProperty('position', 'static', 'important');
+        c.style.setProperty('pointer-events', 'auto', 'important');
+        c.style.setProperty('align-self', 'flex-end', 'important');
+      });
+    }
+    tries++;
+    if(tries < maxTries) requestAnimationFrame(apply);
+  }
+  requestAnimationFrame(apply);
+}
+
+function downloadCSV(){
+  if(!LAST_GRID){ log('请先执行插值'); return; }
+  const {grid, nx, ny, xMin, yMin} = LAST_GRID;
+  const dx = (LAST_GRID.xMax-LAST_GRID.xMin)/nx;
+  const dy = (LAST_GRID.yMax-LAST_GRID.yMin)/ny;
+  let csv = '经度,纬度,插值结果\n';
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){
+    csv += `${(xMin+i*dx).toFixed(6)},${(yMin+j*dy).toFixed(6)},${grid[j*nx+i].toFixed(6)}\n`;
+  }
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'IDW_result.csv';
+  a.click();
+  log('✅ 已导出插值结果 CSV');
+}
+function downloadGeoJSON(){
+  if(!studyAreaGeoJSON){ log('❌ 未加载研究区边界'); return; }
+  const blob = new Blob([JSON.stringify(studyAreaGeoJSON, null, 2)], {type: 'application/geo+json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'study_area.geojson';
+  a.click();
+  log('✅ 已导出研究区边界 GeoJSON');
+}
+
+/* ★★★ 导出 PDF 时用 canvas 临时绘制样点，避免 html2canvas 丢失 SVG 点 ★★★ */
+function createPointsCanvasOverlay(){
+  if(!SAMPLES || !SAMPLES.length) return null;
+  const mapEl = document.getElementById('map');
+  const W = mapEl.clientWidth, H = mapEl.clientHeight;
+  if(W <= 0 || H <= 0) return null;
+
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+
+  const vals = SAMPLES.map(s=>s.value);
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  const userSize = parseFloat(document.getElementById('pointSize').value) || 3;
+  const filterEnabled = document.getElementById('filterPoints') ? document.getElementById('filterPoints').checked : false;
+  const hasShape = !!studyAreaGeoJSON;
+  const useFilter = filterEnabled && hasShape;
+  const d3Available = (typeof d3 !== 'undefined' && typeof d3.geoContains === 'function');
+
+  SAMPLES.forEach(s => {
+    if(useFilter && d3Available){
+      let inside = false;
+      try { inside = d3.geoContains(studyAreaGeoJSON, [s.lng, s.lat]); } catch(e) { inside = true; }
+      if(!inside) return;
+    }
+    const pt = map.latLngToContainerPoint([s.lat, s.lng]);
+    if(pt.x < -30 || pt.x > W + 30 || pt.y < -30 || pt.y > H + 30) return;
+    const t = (s.value - vmin) / (vmax - vmin || 1);
+    const color = `hsl(${(1-t)*240},80%,50%)`;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, userSize, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = '#333333';
+    ctx.stroke();
+  });
+
+  const nw = map.containerPointToLatLng([0, 0]);
+  const se = map.containerPointToLatLng([W, H]);
+  const bounds = [[se.lat, nw.lng], [nw.lat, se.lng]];
+
+  return L.imageOverlay(cv.toDataURL('image/png'), bounds, {opacity: 1, interactive: false}).addTo(map);
+}
+
+async function exportPDF(){
+  if(exportingPDF){ log('PDF 正在生成中，请稍等…'); return; }
+  if(!LAST_GRID){ log('请先执行 IDW 插值填图，再导出 PDF'); return; }
+  exportingPDF = true;
+  log('正在生成 PDF…');
+  const originalCenter = map.getCenter();
+  const originalZoom = map.getZoom();
+  const optBorder = document.getElementById('exportIncludeBorder').checked;
+  const optPoints = document.getElementById('exportIncludePoints').checked;
+  const optGraticule = document.getElementById('exportIncludeGraticule').checked;
+  const optBasemap = document.getElementById('exportIncludeBasemap').checked;
+  try{
+    if(studyAreaLayer){
+      try { map.fitBounds(studyAreaLayer.getBounds(), {padding:[30,30], animate:false}); } catch(e){}
+    } else {
+      try { map.fitBounds([[LAST_GRID.yMin, LAST_GRID.xMin], [LAST_GRID.yMax, LAST_GRID.xMax]], {padding:[30,30], animate:false}); } catch(e){}
+    }
+    await new Promise(r => setTimeout(r, 1500));
+    await new Promise((resolve) => {
+      const done = () => { map.off('moveend', done); setTimeout(resolve, 300); };
+      map.on('moveend', done);
+      setTimeout(done, 3000);
+    });
+
+    // 隐藏控件
+    const hiddenEls = [];
+    document.querySelectorAll('.leaflet-control-zoom, .leaflet-control-attribution, .legend').forEach(el=>{
+      hiddenEls.push({ el, display: el.style.display });
+      el.style.display = 'none';
+    });
+
+    // 研究区边界
+    let shapeWasVisible = false;
+    if(studyAreaLayer && map.hasLayer(studyAreaLayer)){
+      shapeWasVisible = true;
+      if(!optBorder){ map.removeLayer(studyAreaLayer); }
+    }
+
+    // 投点：从地图移除 SVG 版本，改用临时 canvas overlay
+    let pointsWasVisible = false;
+    if(map.hasLayer(ptLayer)){ pointsWasVisible = true; map.removeLayer(ptLayer); }
+    let tempPointsOverlay = null;
+    if(optPoints){
+      tempPointsOverlay = createPointsCanvasOverlay();
+    }
+
+    // 经纬网
+    let graticuleWasVisible = false;
+    if(!optGraticule && graticuleLayer && map.hasLayer(graticuleLayer)){ graticuleWasVisible = true; map.removeLayer(graticuleLayer); }
+
+    // 底图
+    let basemapWasVisible = false, dimWasVisible = false;
+    if(!optBasemap){
+      if(baseLayer && map.hasLayer(baseLayer)){ basemapWasVisible = true; map.removeLayer(baseLayer); }
+      if(dimLayer && map.hasLayer(dimLayer)){ dimWasVisible = true; map.removeLayer(dimLayer); }
+    }
+
+    await new Promise(r => setTimeout(r, 500));
+
+    const mapEl = document.getElementById('map');
+    const mapCanvas = await html2canvas(mapEl, {
+      useCORS: true, allowTaint: false, backgroundColor: '#ffffff',
+      scale: 2, logging: false, imageTimeout: 15000
+    });
+
+    // 恢复所有图层
+    hiddenEls.forEach(({ el, display }) => { el.style.display = display; });
+    if(shapeWasVisible && !optBorder) studyAreaLayer.addTo(map);
+    if(pointsWasVisible) ptLayer.addTo(map);
+    if(tempPointsOverlay) map.removeLayer(tempPointsOverlay);
+    if(graticuleWasVisible) graticuleLayer.addTo(map);
+    if(basemapWasVisible) baseLayer.addTo(map);
+    if(dimWasVisible) dimLayer.addTo(map);
+
+    const SCALE = 2;
+    const studyPolygons = extractPolygons(studyAreaGeoJSON);
+    let cropX, cropY, cropW, cropH;
+    let clipPolys = null;
+    if(studyPolygons.length > 0){
+      clipPolys = studyPolygons.map(poly => poly.map(([lng, lat]) => {
+        const pt = map.latLngToContainerPoint([lat, lng]);
+        return [pt.x * SCALE, pt.y * SCALE];
+      }));
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      clipPolys.forEach(poly => poly.forEach(([x, y]) => {
+        if(x < minX) minX = x; if(x > maxX) maxX = x;
+        if(y < minY) minY = y; if(y > maxY) maxY = y;
+      }));
+      const pad = 30 * SCALE;
+      cropX = Math.max(0, Math.floor(minX - pad));
+      cropY = Math.max(0, Math.floor(minY - pad));
+      cropW = Math.min(mapCanvas.width, Math.ceil(maxX + pad)) - cropX;
+      cropH = Math.min(mapCanvas.height, Math.ceil(maxY + pad)) - cropY;
+    } else {
+      const nwPt = map.latLngToContainerPoint([LAST_GRID.yMax, LAST_GRID.xMin]);
+      const sePt = map.latLngToContainerPoint([LAST_GRID.yMin, LAST_GRID.xMax]);
+      cropX = Math.max(0, Math.floor(nwPt.x * SCALE));
+      cropY = Math.max(0, Math.floor(nwPt.y * SCALE));
+      cropW = Math.min(mapCanvas.width, Math.ceil(sePt.x * SCALE)) - cropX;
+      cropH = Math.min(mapCanvas.height, Math.ceil(sePt.y * SCALE)) - cropY;
+    }
+    if(cropW <= 10 || cropH <= 10) throw new Error('裁剪区域过小');
+
+    const croppedCanvas = document.createElement('canvas');
+    croppedCanvas.width = cropW; croppedCanvas.height = cropH;
+    const cctx = croppedCanvas.getContext('2d');
+    cctx.fillStyle = '#ffffff';
+    cctx.fillRect(0, 0, cropW, cropH);
+
+    if(clipPolys){
+      cctx.save();
+      cctx.beginPath();
+      clipPolys.forEach(poly => {
+        poly.forEach(([x, y], i) => {
+          const px = x - cropX, py = y - cropY;
+          if(i === 0) cctx.moveTo(px, py); else cctx.lineTo(px, py);
+        });
+        cctx.closePath();
+      });
+      cctx.clip();
+      cctx.drawImage(mapCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      cctx.restore();
+      if(optBorder){
+        const shapeStyle = getShapeStyle();
+        cctx.strokeStyle = shapeStyle.color;
+        cctx.lineWidth = shapeStyle.weight * SCALE;
+        if(shapeStyle.dashArray) cctx.setLineDash(shapeStyle.dashArray.split(',').map(v=>parseFloat(v)*SCALE));
+        else cctx.setLineDash([]);
+        clipPolys.forEach(poly => {
+          cctx.beginPath();
+          poly.forEach(([x, y], i) => {
+            const px = x - cropX, py = y - cropY;
+            if(i === 0) cctx.moveTo(px, py); else cctx.lineTo(px, py);
+          });
+          cctx.closePath();
+          cctx.stroke();
+        });
+        cctx.setLineDash([]);
+      }
+    } else {
+      cctx.drawImage(mapCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    }
+
+    const MAP_W = cropW, MAP_H = cropH;
+    const PAD = 40, TITLE_H = 64, LEGEND_BAR_H = 220;
+    const FINAL_W = MAP_W + PAD * 2;
+    const FINAL_H = TITLE_H + MAP_H + LEGEND_BAR_H + PAD;
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = FINAL_W; finalCanvas.height = FINAL_H;
+    const fc = finalCanvas.getContext('2d');
+    fc.fillStyle = '#ffffff';
+    fc.fillRect(0, 0, FINAL_W, FINAL_H);
+
+    const title = mode === 'single' ? document.getElementById('fieldSingle').value : document.getElementById('fieldNum').value + '/' + document.getElementById('fieldDen').value;
+    fc.fillStyle = '#1e1c17';
+    fc.font = 'bold 28px "Microsoft YaHei", "PingFang SC", "SimHei", sans-serif';
+    fc.textAlign = 'center';
+    fc.textBaseline = 'middle';
+    fc.fillText(`${title}  IDW 插值填图`, FINAL_W / 2, TITLE_H / 2);
+    fc.drawImage(croppedCanvas, PAD, TITLE_H, MAP_W, MAP_H);
+    if(!clipPolys){ fc.strokeStyle = '#333333'; fc.lineWidth = 2; fc.strokeRect(PAD, TITLE_H, MAP_W, MAP_H); }
+    const ramp = LAST_GRID.ramp;
+    const vmin = LAST_GRID.vmin, vmax = LAST_GRID.vmax;
+    const barY = TITLE_H + MAP_H + 80, barH = 24;
+    const barX = PAD + 110, barW = MAP_W - 220;
+    const hex2rgb = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+    const N_SEG = 500;
+    for(let i = 0; i < N_SEG; i++){
+      const t = i / (N_SEG - 1);
+      const f = t * (ramp.length - 1);
+      const c0 = hex2rgb(ramp[Math.floor(f)]);
+      const c1 = hex2rgb(ramp[Math.min(ramp.length-1, Math.ceil(f))]);
+      const fr = f - Math.floor(f);
+      fc.fillStyle = `rgb(${Math.round(c0[0]+(c1[0]-c0[0])*fr)},${Math.round(c0[1]+(c1[1]-c0[1])*fr)},${Math.round(c0[2]+(c1[2]-c0[2])*fr)})`;
+      fc.fillRect(barX + i * (barW / N_SEG), barY, barW / N_SEG + 1, barH);
+    }
+    fc.strokeStyle = '#333333'; fc.lineWidth = 1.5;
+    fc.strokeRect(barX, barY, barW, barH);
+    fc.fillStyle = '#1e1c17';
+    fc.font = 'bold 20px "Microsoft YaHei", sans-serif';
+    fc.textBaseline = 'middle';
+    fc.textAlign = 'right'; fc.fillText(vmin.toFixed(1), barX - 15, barY + barH / 2);
+    fc.textAlign = 'left'; fc.fillText(vmax.toFixed(1), barX + barW + 15, barY + barH / 2);
+    fc.textAlign = 'center';
+    fc.font = '18px "Microsoft YaHei", sans-serif';
+    fc.fillText(title, barX + barW / 2, barY + barH + 42);
+
+    const finalImg = finalCanvas.toDataURL('image/jpeg', 0.92);
+    const PDF_W = 280;
+    const PDF_H = (FINAL_H / FINAL_W) * PDF_W;
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({
+      orientation: PDF_W >= PDF_H ? 'landscape' : 'portrait',
+      unit: 'mm', format: [PDF_W, PDF_H]
+    });
+    pdf.addImage(finalImg, 'JPEG', 0, 0, PDF_W, PDF_H);
+    const now = new Date();
+    const fileName = `${title.replace(/[\/\\:*?"<>|]/g, '_')}_IDW填图_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.pdf`;
+    pdf.save(fileName);
+    try { map.setView(originalCenter, originalZoom, {animate: false}); } catch(e){}
+    log(`✅ PDF 已导出：${fileName}\n  边界：${optBorder ? '有' : '无'}  投点：${optPoints ? '有' : '无'}  经纬网：${optGraticule ? '有' : '无'}  底图：${optBasemap ? '有' : '无'}`);
+  } catch(err) {
+    console.error('[exportPDF 错误]', err);
+    try { map.setView(originalCenter, originalZoom, {animate: false}); } catch(e){}
+    log('PDF 导出失败：' + err.message);
+  } finally { exportingPDF = false; }
+}
+
+function log(msg){ document.getElementById('log').textContent = msg; }
+
+// 等待页面完全加载，再初始化地图
+window.addEventListener('load', function() {
+    switchBasemap();
+    updateGraticule();
+    setTimeout(function() {
+        map.invalidateSize();
+    }, 200);
+});
+</script>
+</body>
+</html>
